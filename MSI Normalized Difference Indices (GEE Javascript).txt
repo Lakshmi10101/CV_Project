@@ -1,0 +1,130 @@
+
+var AOI = 
+    /* color: #98ff00 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[90.12770597575084, 28.12363660291908],
+          [90.12770597575084, 27.884168109518622],
+          [90.44493620036022, 27.884168109518622],
+          [90.44493620036022, 28.12363660291908]]], null, false);
+          
+          
+var image = ee.ImageCollection('COPERNICUS/S2_SR')
+  .filterDate('2020-03-01', '2021-05-31')
+  .filterBounds(AOI);
+
+var trueColour = {
+  bands: ['B4', 'B3', 'B2'],
+  min: 0,
+  max: 3000
+};
+
+
+// Function to mask out clouds
+function maskClouds(image) {
+  var scl = image.select('SCL'); // Select the Scene Classification Map
+  var cloudMask = scl.neq(8).and(scl.neq(9)).and(scl.neq(10)); // Create mask where scl value is not equal to 8 (clouds)
+  return image.updateMask(cloudMask); // Update the image mask
+}
+
+function maskWater(image) {
+  var scl = image.select('SCL'); // Select the Scene Classification Map
+  var waterMask = scl.eq(6); // Create mask where scl value is equal to 6 (water)
+  return image.updateMask(waterMask); // Update the image mask
+}
+
+function maskSnowIce(image) {
+  var scl = image.select('SCL'); // Select the Scene Classification Map
+  var snowMask = scl.eq(11) // Create mask where scl value is not equal to 11 (snow/ice)
+  return image.updateMask(snowMask); // Update the image mask
+}
+
+
+// Apply cloud masking function to the ImageCollection
+var imageMasked = image.map(maskClouds);
+
+// Compute median of the masked ImageCollection
+var medianImage = imageMasked.median().clip(AOI);
+
+var waterMasked = maskWater(medianImage);
+var snowMasked = maskSnowIce(medianImage);
+
+
+// Visualize the result
+Map.addLayer(medianImage, trueColour, 'True Color Composite image')
+Map.addLayer(medianImage, {bands: ['B4', 'B3', 'B2'], min: 0, max: 1}, 'waterMasked');
+Map.addLayer(medianImage, {bands: ['B4', 'B3', 'B2'], min: 0, max: 1}, 'snowMasked');
+
+
+
+// Bands
+// B2 - B, 
+// B3 - G,	
+// B4 - R,
+// B8 - NIR,
+// B12 - SWIR
+
+
+// Water bodies
+var ndwi_blue = medianImage.normalizedDifference(['B2', 'B8']).rename('NDWI_blue').copyProperties(image, image.propertyNames());
+var ndwi_green = medianImage.normalizedDifference(['B3', 'B8']).rename('NDWI_green').copyProperties(image, image.propertyNames());
+ 
+// Water bodies
+var mndwi_blue = medianImage.normalizedDifference(['B2', 'B12']).rename('MNDWI_b').copyProperties(image, image.propertyNames());  
+var mndwi_green = medianImage.normalizedDifference(['B3', 'B12']).rename('MNDWI_g').copyProperties(image, image.propertyNames());  
+
+// Mountains
+var ndvi = medianImage.normalizedDifference(['B5', 'B4']).rename('NDVI').copyProperties(image, image.propertyNames());    
+  
+// Mountains
+var ndbi = medianImage.normalizedDifference(['B12', 'B8']).rename('NDBI').copyProperties(image, image.propertyNames());  
+
+// Mountains
+var bsi = medianImage.normalizedDifference(['B12', 'B2']).rename('NDBI').copyProperties(image, image.propertyNames());  
+
+// Glaciers
+var ndsi = medianImage.normalizedDifference(['B3', 'B12']).rename('NDSI').copyProperties(image, image.propertyNames());    
+
+// Glaciers
+var gi = medianImage.normalizedDifference(['B8', 'B12']).rename('GI').copyProperties(image, image.propertyNames());  
+
+var ndwiVisParam = {'min': -1, 'max': 1, 'palette': ["0c33ff","bfeaff","ab37ff","ff127d"]}
+var GI_param = {'min': -1, 'max': 1, palette: ["a1b9ff","fffb31","ff0a40","627cff"]}
+
+Map.addLayer(ee.Image(ndwi_green).clip(AOI), ndwiVisParam, 'ndwi_green')
+Map.addLayer(ee.Image(ndwi_blue).clip(AOI), ndwiVisParam, 'ndwi_blue')
+Map.addLayer(ee.Image(mndwi_blue).clip(AOI), ndwiVisParam, 'MNDWI_b')
+Map.addLayer(ee.Image(mndwi_green).clip(AOI), ndwiVisParam, 'MNDWI_g')
+Map.addLayer(ee.Image(ndvi).clip(AOI), GI_param, 'ndvi')
+Map.addLayer(ee.Image(ndbi).clip(AOI), GI_param, 'ndbi')
+Map.addLayer(ee.Image(bsi).clip(AOI), GI_param, 'bsi')
+Map.addLayer(ee.Image(ndsi).clip(AOI), GI_param, 'ndsi')
+Map.addLayer(ee.Image(gi).clip(AOI), GI_param, 'gi')
+
+
+
+var rule1_ndwiB = ee.Image(ndwi_blue).gt(0.6);
+var rule1_mndwiB = ee.Image(mndwi_blue).gt(0.6);
+var rule2_mndwiG = ee.Image(mndwi_green).gt(0.05);
+var rule3_mndwiG = ee.Image(mndwi_green).gt(0.3);
+var rule3_mndwiG2 = ee.Image(mndwi_green).gt(0.6);
+
+var rule2_ndwiG = ee.Image(ndwi_green).gt(0.05);
+var rule3_ndwiG = ee.Image(ndwi_green).gt(0.3);
+
+// Display the thresholded water mask
+Map.addLayer(rule1_ndwiB, {min: 0, max: 1, palette: ['white', 'blue']}, 'NDWIb_0');
+Map.addLayer(rule1_mndwiB, {min: 0, max: 1, palette: ['white', 'blue']}, 'MNDWIb_0.6');
+
+Map.addLayer(rule2_mndwiG, {min: 0, max: 1, palette: ['white', 'blue']}, 'MNDWIg_0.05');
+Map.addLayer(rule3_mndwiG, {min: 0, max: 1, palette: ['white', 'blue']}, 'MNDWIg_0.3');
+Map.addLayer(rule3_mndwiG2, {min: 0, max: 1, palette: ['white', 'blue']}, 'MNDWIg_0.6');
+
+
+Map.addLayer(rule2_ndwiG, {min: 0, max: 1, palette: ['white', 'blue']}, 'NDWIg_0.05');
+Map.addLayer(rule3_ndwiG, {min: 0, max: 1, palette: ['white', 'blue']}, 'NDWIg_0.3');
